@@ -2,7 +2,7 @@
  * Rate limiting middleware for MCP server
  */
 
-const { config } = require('../config');
+import { config } from '../config.js';
 
 class RateLimiter {
   constructor(options = {}) {
@@ -193,7 +193,7 @@ function createRateLimitMiddleware(rateLimiter = globalRateLimiter) {
   };
 }
 
-module.exports = {
+export {
   RateLimiter,
   globalRateLimiter,
   createRateLimitMiddleware

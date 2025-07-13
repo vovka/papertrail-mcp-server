@@ -4,11 +4,15 @@
  * A Model Context Protocol server for Papertrail log search integration
  */
 
-const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
-const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
-const { config, validateConfig } = require('./config');
-const { searchLogsTool, executeSearchLogs } = require('./tools/searchLogs');
-const PapertrailClient = require('./papertrailClient');
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { 
+  ListToolsRequestSchema, 
+  CallToolRequestSchema 
+} from '@modelcontextprotocol/sdk/types.js';
+import { config, validateConfig } from './config.js';
+import { searchLogsTool, executeSearchLogs } from './tools/searchLogs.js';
+import PapertrailClient from './papertrailClient.js';
 
 /**
  * Create and configure the MCP server
@@ -34,14 +38,14 @@ function createMcpServer() {
  */
 function registerTools(server) {
   // Register search_logs tool
-  server.setRequestHandler('tools/list', async () => {
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
       tools: [searchLogsTool]
     };
   });
 
   // Handle tool execution
-  server.setRequestHandler('tools/call', async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     
     console.log(`Executing tool: ${name}`, args);
@@ -60,31 +64,8 @@ function registerTools(server) {
  * Register server information handlers
  */
 function registerServerInfo(server) {
-  // Provide server information
-  server.setRequestHandler('initialize', async (request) => {
-    return {
-      protocolVersion: '2024-11-05',
-      capabilities: {
-        tools: {}
-      },
-      serverInfo: {
-        name: config.mcp.name,
-        version: config.mcp.version,
-        description: 'MCP server for Papertrail log search integration',
-        author: 'InsightBot Team'
-      }
-    };
-  });
-
-  // Handle ping requests
-  server.setRequestHandler('ping', async () => {
-    return {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      server: config.mcp.name,
-      version: config.mcp.version
-    };
-  });
+  // Note: initialization and ping are handled automatically by the MCP SDK
+  console.log('Server info handlers registered (handled by SDK)');
 }
 
 /**
@@ -190,7 +171,7 @@ function setupGracefulShutdown() {
 }
 
 // Main execution
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   setupGracefulShutdown();
   startServer().catch(error => {
     console.error('Failed to start server:', error);
@@ -198,7 +179,7 @@ if (require.main === module) {
   });
 }
 
-module.exports = {
+export {
   createMcpServer,
   registerTools,
   registerServerInfo,

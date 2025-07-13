@@ -2,9 +2,9 @@
  * Search logs MCP tool implementation
  */
 
-const PapertrailClient = require('../papertrailClient');
-const { createRateLimitMiddleware } = require('../middleware/rateLimiter');
-const { ErrorHandler, ERROR_CODES } = require('../middleware/errorHandler');
+import PapertrailClient from '../papertrailClient.js';
+import { createRateLimitMiddleware } from '../middleware/rateLimiter.js';
+import { ErrorHandler, ERROR_CODES } from '../middleware/errorHandler.js';
 
 /**
  * MCP tool definition for searching Papertrail logs
@@ -249,7 +249,7 @@ function generateEventStats(events) {
   };
 }
 
-module.exports = {
+export {
   searchLogsTool,
   executeSearchLogs
 };

@@ -2,8 +2,8 @@
  * Papertrail API client for log searching
  */
 
-const fetch = require('node-fetch');
-const { config } = require('./config');
+import fetch from 'node-fetch';
+import { config } from './config.js';
 
 class PapertrailClient {
   constructor(apiToken = config.papertrail.apiToken) {
@@ -18,7 +18,7 @@ class PapertrailClient {
    */
   async makeRequest(endpoint, options = {}) {
     const url = `${this.baseUrl}${endpoint}`;
-    
+
     const requestOptions = {
       method: 'GET',
       headers: {
@@ -34,10 +34,15 @@ class PapertrailClient {
     let lastError;
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
+        console.log(`Papertrail API request to: ${url}`);
+        console.log(`Headers:`, requestOptions.headers);
         const response = await fetch(url, requestOptions);
-        
+
         if (!response.ok) {
           const errorText = await response.text();
+          console.log(`Response status: ${response.status}`);
+          console.log(`Response headers:`, Object.fromEntries(response.headers.entries()));
+          console.log(`Response body:`, errorText);
           throw new Error(
             `Papertrail API error (${response.status}): ${errorText}`
           );
@@ -47,7 +52,7 @@ class PapertrailClient {
       } catch (error) {
         lastError = error;
         console.warn(`Request attempt ${attempt} failed:`, error.message);
-        
+
         if (attempt < this.maxRetries) {
           // Exponential backoff: 1s, 2s, 4s
           const delay = Math.pow(2, attempt - 1) * 1000;
@@ -82,7 +87,7 @@ class PapertrailClient {
       return {
         success: true,
         events: result.events || [],
-        total: result.total_events || result.events?.length || 0,
+        total: result.events?.length || 0,
         query,
         timeRange: {
           minTime: options.minTime || this.getDefaultMinTime(),
@@ -146,22 +151,85 @@ class PapertrailClient {
   }
 
   /**
-   * Test API connectivity
+   * Test API connectivity with different authentication methods and endpoints
    */
   async testConnection() {
-    try {
-      await this.makeRequest('/systems.json');
-      return {
-        success: true,
-        message: 'Successfully connected to Papertrail API'
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error.message,
-        message: 'Failed to connect to Papertrail API'
-      };
+    // Try different authentication methods
+    const authMethods = [
+      { 
+        name: 'X-Papertrail-Token', 
+        headers: { 'X-Papertrail-Token': this.apiToken }
+      },
+      { 
+        name: 'Bearer Token', 
+        headers: { 'Authorization': `Bearer ${this.apiToken}` }
+      },
+      { 
+        name: 'Basic Auth (token as username)', 
+        headers: { 'Authorization': `Basic ${Buffer.from(`${this.apiToken}:`).toString('base64')}` }
+      }
+    ];
+    
+    const endpoints = [
+      '/systems.json',
+      '/events/search.json?q=*&limit=1',
+      '/groups.json'
+    ];
+    
+    for (const authMethod of authMethods) {
+      console.log(`Trying authentication method: ${authMethod.name}`);
+      
+      for (const endpoint of endpoints) {
+        try {
+          console.log(`  Testing endpoint: ${endpoint}`);
+          const result = await this.makeRequestWithAuth(endpoint, authMethod.headers);
+          return {
+            success: true,
+            message: `Successfully connected to Papertrail API using ${authMethod.name} on ${endpoint}`,
+            authMethod: authMethod.name,
+            endpoint
+          };
+        } catch (error) {
+          console.log(`    Failed: ${error.message}`);
+        }
+      }
     }
+    
+    return {
+      success: false,
+      error: 'All authentication methods and endpoints failed',
+      message: 'Failed to connect to Papertrail API (tried all combinations)'
+    };
+  }
+
+  /**
+   * Make request with specific auth headers (for testing)
+   */
+  async makeRequestWithAuth(endpoint, authHeaders) {
+    const url = `${this.baseUrl}${endpoint}`;
+    
+    const requestOptions = {
+      method: 'GET',
+      headers: {
+        ...authHeaders,
+        'Accept': 'application/json',
+        'User-Agent': `${config.mcp.name}/${config.mcp.version}`
+      },
+      timeout: this.timeout
+    };
+
+    console.log(`      Request to: ${url}`);
+    console.log(`      Headers:`, requestOptions.headers);
+    
+    const response = await fetch(url, requestOptions);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.log(`      Response: ${response.status} - ${errorText}`);
+      throw new Error(`Papertrail API error (${response.status}): ${errorText}`);
+    }
+
+    return await response.json();
   }
 
   /**
@@ -214,4 +282,4 @@ class PapertrailClient {
   }
 }
 
-module.exports = PapertrailClient;
+export default PapertrailClient;

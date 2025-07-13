@@ -2,7 +2,8 @@
  * Configuration management for Papertrail MCP Server
  */
 
-require('dotenv').config();
+import dotenv from 'dotenv';
+dotenv.config();
 
 /**
  * Get environment variable with optional default value
@@ -70,7 +71,7 @@ function validateConfig() {
   }
 }
 
-module.exports = {
+export {
   config,
   validateConfig
 };

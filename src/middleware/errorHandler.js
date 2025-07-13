@@ -2,7 +2,7 @@
  * Error handling middleware for MCP server
  */
 
-const { config } = require('../config');
+import { config } from '../config.js';
 
 /**
  * Standard error codes for MCP operations
@@ -225,7 +225,7 @@ function createErrorMiddleware() {
   };
 }
 
-module.exports = {
+export {
   ErrorHandler,
   ERROR_CODES,
   createErrorMiddleware

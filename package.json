@@ -2,6 +2,7 @@
   "name": "papertrail-mcp-server",
   "version": "1.0.0",
   "description": "Custom MCP server for Papertrail log search integration",
+  "type": "module",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
