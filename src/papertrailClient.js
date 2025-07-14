@@ -34,21 +34,42 @@ class PapertrailClient {
     let lastError;
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
+        const requestStart = Date.now();
         console.log(`Papertrail API request to: ${url}`);
         console.log(`Headers:`, requestOptions.headers);
+        
         const response = await fetch(url, requestOptions);
+        const responseTime = Date.now() - requestStart;
+
+        console.log(`Response status: ${response.status}`);
+        console.log(`Response time: ${responseTime}ms`);
+        console.log(`Response headers:`, Object.fromEntries(response.headers.entries()));
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.log(`Response status: ${response.status}`);
-          console.log(`Response headers:`, Object.fromEntries(response.headers.entries()));
-          console.log(`Response body:`, errorText);
+          console.log(`Response body (error):`, errorText);
           throw new Error(
             `Papertrail API error (${response.status}): ${errorText}`
           );
         }
 
-        return await response.json();
+        const responseData = await response.json();
+        console.log(`Response body (success):`, JSON.stringify(responseData, null, 2));
+        
+        // Create a copy of response data for metadata to avoid circular reference
+        const responseBodyCopy = JSON.parse(JSON.stringify(responseData));
+        
+        // Add metadata to response
+        responseData._metadata = {
+          url,
+          status: response.status,
+          responseTime,
+          timestamp: new Date().toISOString(),
+          headers: Object.fromEntries(response.headers.entries()),
+          responseBody: responseBodyCopy // Include copy to avoid circular reference
+        };
+        
+        return responseData;
       } catch (error) {
         lastError = error;
         console.warn(`Request attempt ${attempt} failed:`, error.message);
@@ -96,7 +117,9 @@ class PapertrailClient {
         metadata: {
           searchTime: new Date().toISOString(),
           limit: options.limit || 100
-        }
+        },
+        // Pass through the API metadata from makeRequest
+        _metadata: result._metadata
       };
     } catch (error) {
       console.error('Error searching Papertrail logs:', error);
@@ -156,29 +179,29 @@ class PapertrailClient {
   async testConnection() {
     // Try different authentication methods
     const authMethods = [
-      { 
-        name: 'X-Papertrail-Token', 
+      {
+        name: 'X-Papertrail-Token',
         headers: { 'X-Papertrail-Token': this.apiToken }
       },
-      { 
-        name: 'Bearer Token', 
+      {
+        name: 'Bearer Token',
         headers: { 'Authorization': `Bearer ${this.apiToken}` }
       },
-      { 
-        name: 'Basic Auth (token as username)', 
+      {
+        name: 'Basic Auth (token as username)',
         headers: { 'Authorization': `Basic ${Buffer.from(`${this.apiToken}:`).toString('base64')}` }
       }
     ];
-    
+
     const endpoints = [
       '/systems.json',
       '/events/search.json?q=*&limit=1',
       '/groups.json'
     ];
-    
+
     for (const authMethod of authMethods) {
       console.log(`Trying authentication method: ${authMethod.name}`);
-      
+
       for (const endpoint of endpoints) {
         try {
           console.log(`  Testing endpoint: ${endpoint}`);
@@ -194,7 +217,7 @@ class PapertrailClient {
         }
       }
     }
-    
+
     return {
       success: false,
       error: 'All authentication methods and endpoints failed',
@@ -207,7 +230,7 @@ class PapertrailClient {
    */
   async makeRequestWithAuth(endpoint, authHeaders) {
     const url = `${this.baseUrl}${endpoint}`;
-    
+
     const requestOptions = {
       method: 'GET',
       headers: {
@@ -220,9 +243,9 @@ class PapertrailClient {
 
     console.log(`      Request to: ${url}`);
     console.log(`      Headers:`, requestOptions.headers);
-    
+
     const response = await fetch(url, requestOptions);
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       console.log(`      Response: ${response.status} - ${errorText}`);
@@ -236,8 +259,8 @@ class PapertrailClient {
    * Get default minimum time (1 hour ago)
    */
   getDefaultMinTime() {
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    return Math.floor(oneHourAgo.getTime() / 1000);
+    const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    return Math.floor(oneMonthAgo.getTime() / 1000);
   }
 
   /**

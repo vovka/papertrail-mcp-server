@@ -167,7 +167,13 @@ class ErrorHandler {
           // Type checking
           if (constraints.type) {
             const actualType = Array.isArray(value) ? 'array' : typeof value;
-            if (actualType !== constraints.type) {
+            
+            // Handle integer vs number distinction (JavaScript doesn't have separate integer type)
+            if (constraints.type === 'integer') {
+              if (actualType !== 'number' || !Number.isInteger(value)) {
+                errors.push(`Field '${field}' must be an integer, got ${actualType === 'number' ? 'non-integer number' : actualType}`);
+              }
+            } else if (actualType !== constraints.type) {
               errors.push(`Field '${field}' must be of type ${constraints.type}, got ${actualType}`);
             }
           }

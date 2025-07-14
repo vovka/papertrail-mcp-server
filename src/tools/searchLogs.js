@@ -17,7 +17,7 @@ const searchLogsTool = {
     properties: {
       query: {
         type: 'string',
-        description: 'Search query to find in logs (supports Papertrail search syntax)'
+        description: 'REQUIRED: Search query to find in logs. Extract keywords from user message (e.g., "payment error", "login timeout", "order failed"). Use quotes for exact terms like "order-12345".'
       },
       minTime: {
         type: 'string',
@@ -57,6 +57,15 @@ async function executeSearchLogs(args, clientId = 'default') {
     // Apply rate limiting
     rateLimitMiddleware(clientId);
     
+    // Check for empty or missing query specifically
+    if (!args.query || args.query.trim() === '') {
+      throw ErrorHandler.createError(
+        ERROR_CODES.INVALID_ARGUMENTS,
+        'Query parameter is required and cannot be empty. Please provide search terms extracted from the user message.',
+        { providedArgs: args, requiredFields: ['query'] }
+      );
+    }
+    
     // Validate arguments using error handler
     ErrorHandler.validateArgs(args, searchLogsTool.inputSchema);
 
@@ -65,9 +74,9 @@ async function executeSearchLogs(args, clientId = 'default') {
 
     // Parse time parameters
     const options = {
-      limit: Math.min(args.limit || 100, 1000),
-      ...(args.systemId && { system_id: args.systemId }),
-      ...(args.groupId && { group_id: args.groupId })
+      limit: Math.min(parseInt(args.limit) || 100, 1000),
+      ...(args.systemId && { system_id: parseInt(args.systemId) }),
+      ...(args.groupId && { group_id: parseInt(args.groupId) })
     };
 
     // Parse time parameters if provided
@@ -95,19 +104,48 @@ async function executeSearchLogs(args, clientId = 'default') {
 
     console.log(`Searching Papertrail logs for: "${args.query}"`);
     
+    // Capture request details
+    const requestDetails = {
+      query: args.query,
+      options: options,
+      timestamp: new Date().toISOString(),
+      apiUrl: `${client.baseUrl}/events/search.json`
+    };
+    
     // Execute search
     const result = await client.searchLogs(args.query, options);
+    console.log('Search result metadata:', result._metadata);
 
     if (!result.success) {
       throw ErrorHandler.createError(
         ERROR_CODES.API_CONNECTION_ERROR,
         `Papertrail API request failed: ${result.error}`,
-        { apiEndpoint: 'events/search.json' }
+        { 
+          apiEndpoint: 'events/search.json',
+          requestDetails: requestDetails,
+          apiResponse: result
+        }
       );
     }
 
-    // Format results
-    const formattedResult = formatSearchResults(result, args.query);
+    // Include debug information in the response
+    const debugInfo = {
+      request: requestDetails,
+      response: {
+        success: result.success,
+        total: result.total,
+        eventsReturned: result.events?.length || 0,
+        timeRange: result.timeRange,
+        apiResponseTime: result._metadata?.responseTime || 'N/A',
+        searchTime: result._metadata?.searchTime || new Date().toISOString(),
+        apiStatus: result._metadata?.status || 'N/A',
+        apiUrl: result._metadata?.url || requestDetails.apiUrl,
+        responseBody: result._metadata?.responseBody || null
+      }
+    };
+    
+    // Format results with debug info included in the text
+    const formattedResult = formatSearchResults(result, args.query, debugInfo);
     
     console.log(`Found ${result.total} log events matching "${args.query}"`);
     
@@ -116,7 +154,8 @@ async function executeSearchLogs(args, clientId = 'default') {
       content: [{
         type: 'text',
         text: formattedResult
-      }]
+      }],
+      debug: debugInfo
     };
 
   } catch (error) {
@@ -132,14 +171,50 @@ async function executeSearchLogs(args, clientId = 'default') {
 /**
  * Format search results for presentation
  */
-function formatSearchResults(result, query) {
+function formatSearchResults(result, query, debugInfo = null) {
   const { events, total, timeRange, metadata } = result;
   
-  let output = `🔍 Papertrail Log Search Results\n`;
+  let output = `🔍 Papertrail Log Search Results [DEBUG_ENABLED_v2]\n`;
   output += `Query: "${query}"\n`;
   output += `Found: ${total} events\n`;
   output += `Time Range: ${formatTimeRange(timeRange)}\n`;
   output += `Search Time: ${new Date(metadata.searchTime).toLocaleString()}\n\n`;
+  
+  // Always add request/response details
+  output += `🔧 Request/Response Details:\n`;
+  output += `• Query: "${query}"\n`;
+  output += `• Timestamp: ${new Date().toISOString()}\n`;
+  
+  if (debugInfo) {
+    output += `• API URL: ${debugInfo.response.apiUrl}\n`;
+    output += `• HTTP Status: ${debugInfo.response.apiStatus}\n`;
+    output += `• Response Time: ${debugInfo.response.apiResponseTime}ms\n`;
+    output += `• Request Options: ${JSON.stringify(debugInfo.request.options)}\n`;
+    output += `• Events Found: ${debugInfo.response.total} (returned: ${debugInfo.response.eventsReturned})\n`;
+    
+    // Add response JSON if available (truncated for readability)
+    if (debugInfo.response.responseBody) {
+      const responseBody = debugInfo.response.responseBody;
+      const truncatedResponse = {
+        events: responseBody.events ? `${responseBody.events.length} events` : 'no events',
+        ...(responseBody.events && responseBody.events.length > 0 && {
+          firstEvent: {
+            id: responseBody.events[0].id,
+            received_at: responseBody.events[0].received_at,
+            hostname: responseBody.events[0].hostname,
+            program: responseBody.events[0].program,
+            message: responseBody.events[0].message?.substring(0, 100) + '...'
+          }
+        }),
+        ...(responseBody.total_hits !== undefined && { total_hits: responseBody.total_hits }),
+        ...(responseBody.min_time !== undefined && { min_time: responseBody.min_time }),
+        ...(responseBody.max_time !== undefined && { max_time: responseBody.max_time })
+      };
+      output += `• Response JSON (summary): ${JSON.stringify(truncatedResponse, null, 2)}\n`;
+    }
+  } else {
+    output += `• Debug info: Not available\n`;
+  }
 
   if (events.length === 0) {
     output += '📭 No log events found matching the search criteria.\n\n';
@@ -177,6 +252,8 @@ function formatSearchResults(result, query) {
   if (stats.errorCount > 0) {
     output += `• ⚠️  Error-level events: ${stats.errorCount}\n`;
   }
+
+  // Debug section already added above
 
   return output;
 }
